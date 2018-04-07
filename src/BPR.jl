@@ -39,9 +39,13 @@ export BPRResult, BPR_iter, BPR
 # assumes no user has 0 consumed items nor 100% consumed items
 
 struct BPRResult
-    converged::Integer
+    # convergence properties
+    converged::Bool
     value::Real
+    bpr_opt::Real
+    auc::Real
     iters::Integer
+    # run settings
     k::Integer
     λw::Real
     λhp::Real
@@ -49,11 +53,24 @@ struct BPRResult
     α::Real
     tol::Real
     max_iters::Integer
-    num_converged::Integer
+    min_iters::Integer
+    min_auc::Real
+    # results
     W::AbstractArray{<:Real, 2}
     H::AbstractArray{<:Real, 2}
 end
 
+function Base.string(B::BPRResult)
+"""converged:	$(B.converged)
+value:	$(B.value)
+bpr_opt:	$(B.bpr_opt)
+auc:	$(B.auc)
+iters:	$(B.iters)"""
+end
+
+Base.show(io::Base.IO, B::BPRResult) = show(io, string(B))
+
+# data properties in convenient format with iterator protocol
 struct BPR_iter{T<:Real}
     data::AbstractArray{T, 2}
     nusers::Integer
@@ -84,7 +101,8 @@ function Base.next(bpr::BPR_iter, state)
     user = rand(bpr.users)
     # views don't work here, and i'm not sure that they are necessary
     pos_prod = rand(bpr.pos_prods[user])
-    neg_prod = sample(bpr.neg_prods[user], bpr.neg_weights[user])
+    #neg_prod = sample(bpr.neg_prods[user], bpr.neg_weights[user])
+    neg_prod = rand(bpr.neg_prods[user])
     return (user, pos_prod, neg_prod), nothing
 end
 
@@ -97,59 +115,71 @@ Base.iteratoreltype(bpr::BPR_iter) = typeof((bpr.users[1], bpr.pos_prods[1][1],
 
 
 function bpr(biter::BPR_iter, k, λw, λhp, λhn, α; 
-             tol=1e-5, loop_size=256, max_iters=0, num_converged=1,
+             tol=1e-5, loop_size=256, max_iters=0, min_iters=1, min_auc=0.0,
              W=randn(biter.nusers, k), H=randn(biter.nprods, k))
-    wuf_new = zeros(k)
-    hif_new = zeros(k)
-    hjf_new = zeros(k)
-    iters = 0
-    converged = 0
-    stepsize = 1 / tol # ensure this is defined outside of while scope
-    progress = ProgressThresh(tol, "Searching:")
+    if biter.nusers < k | biter.nprods < k
+        error("Number of rows and columns must both be greater than k, $k")
+    end
+    # ensure these are defined outside of while scope
+    iters = 0 # need to loop at least twice to see the improvement in bpr-opt
+    converged = false
+    stepsize = 1.0
+    bpr_old = 2.0 # make sure first loop doesn't look like convergence
+    bpr_new = 0.0
+    cur_auc = 0.0
+    progress = ProgressThresh(tol, "BPR-Opt:")
+    if min_auc > 0
+        auc_progress = ProgressThresh(1-min_auc, "AUC:")
+    end
     info("Starting BPR loop.")
-    @inbounds while true
-        @simd for _ in 1:loop_size
+    while true
+        bpr_new = 0.0
+        cur_auc = 0.0
+        @inbounds @simd for _ in 1:loop_size # simd be might be bad with random next()
             (user, pos_prod, neg_prod), _ = next(biter, nothing) # expensive: 222
             wuf = @view(W[user, :])
             hif = @view(H[pos_prod, :])
             hjf = @view(H[neg_prod, :])
             xuij = wuf' * hif - wuf' * hjf
-            #xuij = sum(wuf .* hif) - sum(wuf .* hjf) # this seems more expensive, but hard to tell
             exuij = exp(-xuij)
             sig = exuij / (1 + exuij)
-            wuf_new[:] .= wuf .+ α .* (sig .* (hif .- hjf) .+ λw .* wuf) # wuf_grad = hif - hjf
-            hif_new[:] .= hif .+ α .* (sig .* wuf .+ λhp .* hif) # hif_grad = wuf
-            hjf_new[:] .= hjf .+ α .* (sig .* -wuf .+ λhn .* hjf) # hjf_grad = -wuf
-            #stepsize = sum(abs, wuf .- wuf_new) .+ sum(abs, hif .- hif_new) .+ sum(abs, hjf .- hjf_new) # expensive! 478
-            stepsize = sum(abs.(wuf .- wuf_new) .+ abs.(hif .- hif_new) .+ abs.(hjf .- hjf_new)) # expensive! 478
-            wuf[:] = wuf_new
-            hif[:] = hif_new
-            hjf[:] = hjf_new
+            wuf[:] .= wuf .+ α .* (sig .* (hif .- hjf) .+ λw .* wuf) # wuf_grad = hif - hjf
+            hif[:] .= hif .+ α .* (sig .* wuf .+ λhp .* hif) # hif_grad = wuf
+            hjf[:] .= hjf .+ α .* (sig .* -wuf .+ λhn .* hjf) # hjf_grad = -wuf
+            xuij = wuf' * hif - wuf' * hjf
+            # the bpr criterion
+            bpr_new += (log(1 / (1 + exp(-xuij))) - λw * norm(wuf) -
+                        λhp * norm(hif) - λhn * norm(hjf))
+            # auc
+            cur_auc += (xuij > 0)
         end
         iters += 1
+        cur_auc /= loop_size
+        bpr_new /= loop_size
+        stepsize = abs(bpr_new - bpr_old)
+        bpr_old = bpr_new
         ProgressMeter.update!(progress, stepsize)
-        if stepsize < tol
-            converged += 1
-            if converged >= num_converged
-                break
-            end
-        elseif ((max_iters > 0) & (iters > max_iters))
+        if min_auc > 0
+            ProgressMeter.update!(auc_progress, cur_auc)
+        end
+        if (iters > min_iters) & (stepsize < tol) & (cur_auc > min_auc)
+            converged = true
+            break
+        elseif (max_iters > 0) & (iters >= max_iters)
             warn("max iters reached without convergence, breaking.")
             break
         elseif isnan(stepsize)
             warn("stepsize is nan, breaking.")
             break
-        else
-            converged = 0
         end
     end
 
-    return BPRResult(converged, stepsize, iters, k, λw, λhp, λhn, α , tol,
-                     max_iters, num_converged, W, H)
+    return BPRResult(converged, stepsize, bpr_new, cur_auc, iters, k, λw, λhp,
+                     λhn, α , tol, max_iters, min_iters, min_auc, W, H)
 end
 
 function bpr(data::AbstractArray{<:Real, 2}, k, λw, λhp, λhn, α; 
-             tol=1e-5, loop_size=256, max_iters=0, num_converged=1,
+             tol=1e-5, loop_size=256, max_iters=0, min_iters=1, min_auc=0.0,
              W=randn(size(data, 1), k), H=randn(size(data, 2), k))
     nusers, nprods = size(data)
     if nusers < k | nprods < k
@@ -158,22 +188,39 @@ function bpr(data::AbstractArray{<:Real, 2}, k, λw, λhp, λhn, α;
     # quick lookups for each user of consumed and unconsumed items
     info("Initializing iterator")
     biter = BPR_iter(data)
-    return bpr(biter, k, λw, λhp, λhn, α,
+    return bpr(biter, k, λw, λhp, λhn, α;
                tol=tol, loop_size=loop_size, max_iters=max_iters,
-               num_converged=num_converged, W=W< H=H)
+               min_iters=min_iters, min_auc=min_auc, W=W< H=H)
 end
 
 function bpr(data::AbstractArray{<:Real, 2}, B::BPRResult)
     bpr(data, B.k, B.λw, B.λhp, B.λhn, B.α; 
-        tol=B.tol, max_iters=B.max_iters, num_converged=B.num_converged,
-        W=copy(B.W), H=copy(B.H))
+        tol=B.tol, max_iters=B.max_iters, min_iters=B.min_iters,
+        min_auc=B.min_auc, W=copy(B.W), H=copy(B.H))
 end
 
 function bpr(biter::BPR_iter, B::BPRResult)
     bpr(biter, B.k, B.λw, B.λhp, B.λhn, B.α; 
-        tol=B.tol, max_iters=B.max_iters, num_converged=B.num_converged,
+        tol=B.tol, max_iters=B.max_iters, min_iters=B.min_iters, min_auc=B.min_auc,
         W=copy(B.W), H=copy(B.H))
 end
+
+function auc(biter::BPR_iter, W::AbstractArray{<:Real, 2},
+             H::AbstractArray{<:Real, 2}; iters=4096)
+    sm = 0
+    @inbounds @simd for _ in 1:iters
+        (user, pos_prod, neg_prod), _ = next(biter, nothing) # expensive: 222
+        wuf = @view(W[user, :])
+        hif = @view(H[pos_prod, :])
+        hjf = @view(H[neg_prod, :])
+        sm += (wuf' * hif - wuf' * hjf) > 0
+    end
+    return sm / iters
+end
+
+auc(biter::BPR_iter, B::BPRResult; iters=4096) = return auc(biter, B.W, B.H; iters=iters)
+
+
 
 #function BPR_AUC(allbutone, holdouts, ...)
 #    # remove one data item per user
