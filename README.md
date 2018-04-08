@@ -22,5 +22,5 @@ bpr.bpr_opt
 # how well do we predict in a hold out sample
 bpr.auc_outsample 
 # matrix of predicted rankings from
-bpr.W * bpr.H
+bpr.W * bpr.H'
 ```
