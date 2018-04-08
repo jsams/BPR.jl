@@ -2,48 +2,18 @@ module BPR
 
 import Base
 using ProgressMeter
-using StatsBase
 
-export BPRResult, BPR_iter, BPR
-# Implements Rendle et at 2009
+export BPRResult, BPR_iter, bpr, auc_insamp, auc_outsamp
 
 
-# test with:
-#include("BPR.jl")
-#using BPR
-#X = sprand(3000, 3000, 0.05)
-#biter = BPR.BPR_iter(X)
-#@time bpr = BPR.bpr(biter, 10, 0.01, 0.01, 0.01, 0.01; tol=0.01, max_iters=10)
-#
-#Profile.clear()
-#Profile.clear_malloc_data()
-#@profile bpr = BPR.bpr(biter, 10, 0.01, 0.01, 0.01, 0.01; tol=0.001, max_iters=100)
-#Profile.print(maxdepth=9)
-
-
-
-
-# preferably be able to pass in a BPR object and have it restart stuff from
-# where things left off with the given data
-# or be able to specify at U and V instead of random init
-# tolerance and that kind of shit
-# probably best to set defaults
-# max iters
-# allow non-random init?
-# * data: a user x item matrix to learn (sparse or otherwise)
-# * k: number of dimensions to learn
-# * α: learning rate
-# * λw: regularization on user features, 
-# * λhp: regularization on positive updates on items
-# * λhm: regularization on negative updates on items
-# assumes no user has 0 consumed items nor 100% consumed items
-
-struct BPRResult
+# e.g. to allow change to tol for new run
+mutable struct BPRResult
     # convergence properties
     converged::Bool
     value::Real
     bpr_opt::Real
-    auc::Real
+    auc_insample::Real
+    auc_outsample::Real
     iters::Integer
     # run settings
     k::Integer
@@ -61,14 +31,18 @@ struct BPRResult
 end
 
 function Base.string(B::BPRResult)
-"""converged:	$(B.converged)
-value:	$(B.value)
-bpr_opt:	$(B.bpr_opt)
-auc:	$(B.auc)
-iters:	$(B.iters)"""
+    """
+        BPRResult:
+          k:              $(size(B.W, 2))
+          converged:      $(B.converged)
+          value:          $(B.value)
+          bpr_opt:        $(B.bpr_opt)
+          auc_insample:   $(B.auc_insample)
+          auc_outsample:  $(B.auc_outsample)
+          iters:          $(B.iters)"""
 end
 
-Base.show(io::Base.IO, B::BPRResult) = show(io, string(B))
+Base.show(io::Base.IO, B::BPRResult) = print(io, string(B))
 
 # data properties in convenient format with iterator protocol
 struct BPR_iter{T<:Real}
@@ -77,31 +51,62 @@ struct BPR_iter{T<:Real}
     nprods::Integer
     users::UnitRange{<:Integer}
     prods::IntSet
-    weights::AbstractArray{<:Real, 1}
     pos_prods::AbstractArray{<:AbstractArray{<:Integer, 1}, 1}
     neg_prods::AbstractArray{<:AbstractArray{<:Integer, 1}, 1}
-    neg_weights::AbstractArray{<:StatsBase.AbstractWeights, 1}
+    pos_holdouts::AbstractArray{<:Integer, 1}
+    neg_holdouts::AbstractArray{<:Integer, 1}
 end
 
+"""
+    data is a user x item array, result is an infinite iterator over Ds
+
+    where the non-zero entries indicate that the user has
+    consumed/purchased/rated that item. Because we compute out-of-sample AUC,
+    each user needs at least 2 rated items (1 to train on, 1 to hold out).
+    There should be no unconsumed items. Also, no user should have consumed
+    every item, but this should not be an issue in real-world data.
+
+    Sparse matrix is supported.
+
+    See Rendle 2009 paper for definition of the uniform sampling strategy."""
 function BPR_iter(data::AbstractArray{T, 2}) where T
+    # do any users see only one item? filter out b/c can't do hold out with
+    # them
+    good_users = find(x -> (x>1),
+                      sum(x -> x > 0, data, 2))
+    if size(good_users, 1) < size(data, 1)
+        warn("$(size(data, 1) - size(good_users, 1)) users were removed for insufficient data.")
+        data = data[good_users, :]
+    end
+    if any(sum(data, 1) .== 0)
+        error("some columns sum to 0. Fix your data. bailing.")
+    end
     nusers, nprods = size(data)
     users = 1:nusers
     prods = IntSet(1:nprods)
-    weights = vec(log.(sum(data, 1)))
     pos_prods = [find(data[user, :] .> 0) for user in users]
     neg_prods = [sort(collect(setdiff(prods, posprod))) for posprod in pos_prods]
-    neg_weights = [FrequencyWeights(weights[negprod]) for negprod in neg_prods]
-    return BPR_iter(data, nusers, nprods, users, prods, weights, pos_prods,
-                    neg_prods, neg_weights)
+    pos_holdouts = zeros(eltype(pos_prods[1]), nusers)
+    neg_holdouts = zeros(eltype(neg_prods[1]), nusers)
+    for user in users
+        pitemidx = rand(1:size(pos_prods[user], 1))
+        nitemidx = rand(1:size(neg_prods[user], 1))
+        pos_holdouts[user] = pos_prods[user][pitemidx]
+        neg_holdouts[user] = neg_prods[user][nitemidx]
+        deleteat!(pos_prods[user], pitemidx)
+        deleteat!(neg_prods[user], nitemidx)
+    end
+    return BPR_iter(data, nusers, nprods, users, prods, pos_prods, neg_prods,
+                    pos_holdouts, neg_holdouts)
 end
-
+Base.string(bpr::BPR_iter) = "$(bpr.nusers) x $(bpr.nprods) BPR_iter"
+Base.show(io::Base.IO, bpr::BPR_iter) = print(io, string(bpr))
 Base.start(bpr::BPR_iter) = nothing
 
 function Base.next(bpr::BPR_iter, state)
     user = rand(bpr.users)
     # views don't work here, and i'm not sure that they are necessary
     pos_prod = rand(bpr.pos_prods[user])
-    #neg_prod = sample(bpr.neg_prods[user], bpr.neg_weights[user])
     neg_prod = rand(bpr.neg_prods[user])
     return (user, pos_prod, neg_prod), nothing
 end
@@ -113,7 +118,24 @@ Base.iteratorsize(bpr::BPR_iter) = Base.IsInfinite()
 Base.iteratoreltype(bpr::BPR_iter) = typeof((bpr.users[1], bpr.pos_prods[1][1],
                                              bpr.neg_prods[1][1]))
 
-
+"""
+    find optimal W and H matrix for bpr matrix factorization, returns BPRResult
+    * biter: object from BPR_iter
+    * k: number of dimensions to learn
+    * λw: regularization on user features, 
+    * λhp: regularization on positive updates on items
+    * λhm: regularization on negative updates on items
+    * α: learning rate
+    * tol: when objective (BPR-OPT) has changed less than tol on average
+           over loop_size iterations, consider converged
+    * loop_size: how many loops to average change in in-sample AUC and BPR-OPT
+    * max_iters: how many iterations over loop_size to try before giving up.
+      0=never give up
+    * min_iters: run at least this many iterations before allowing convergence.
+    * min_auc: a secondary convergence criterion, in-sample AUC has to be at
+      least this good before being considered converged
+    * W: an initialized W parameter matrix (nuser x k)
+    * H: an initialized H parameter matrix (nprod x k)"""
 function bpr(biter::BPR_iter, k, λw, λhp, λhn, α; 
              tol=1e-5, loop_size=256, max_iters=0, min_iters=1, min_auc=0.0,
              W=randn(biter.nusers, k), H=randn(biter.nprods, k))
@@ -173,9 +195,9 @@ function bpr(biter::BPR_iter, k, λw, λhp, λhn, α;
             break
         end
     end
-
-    return BPRResult(converged, stepsize, bpr_new, cur_auc, iters, k, λw, λhp,
-                     λhn, α , tol, max_iters, min_iters, min_auc, W, H)
+    auc_oos = auc_outsamp(biter, W, H)
+    return BPRResult(converged, stepsize, bpr_new, cur_auc, auc_oos, iters, k,
+                     λw, λhp, λhn, α , tol, max_iters, min_iters, min_auc, W, H)
 end
 
 function bpr(data::AbstractArray{<:Real, 2}, k, λw, λhp, λhn, α; 
@@ -200,13 +222,14 @@ function bpr(data::AbstractArray{<:Real, 2}, B::BPRResult)
 end
 
 function bpr(biter::BPR_iter, B::BPRResult)
-    bpr(biter, B.k, B.λw, B.λhp, B.λhn, B.α; 
+    bpr(biter, B.k, B.λw, B.λhp, B.λhn, B.α;
         tol=B.tol, max_iters=B.max_iters, min_iters=B.min_iters, min_auc=B.min_auc,
         W=copy(B.W), H=copy(B.H))
 end
 
-function auc(biter::BPR_iter, W::AbstractArray{<:Real, 2},
-             H::AbstractArray{<:Real, 2}; iters=4096)
+# AUC computed on random in-sample
+function auc_insamp(biter::BPR_iter, W::AbstractArray{<:Real, 2},
+                    H::AbstractArray{<:Real, 2}; iters=4096)
     sm = 0
     @inbounds @simd for _ in 1:iters
         (user, pos_prod, neg_prod), _ = next(biter, nothing) # expensive: 222
@@ -218,9 +241,26 @@ function auc(biter::BPR_iter, W::AbstractArray{<:Real, 2},
     return sm / iters
 end
 
-auc(biter::BPR_iter, B::BPRResult; iters=4096) = return auc(biter, B.W, B.H; iters=iters)
+auc_insamp(biter::BPR_iter, B::BPRResult; iters=4096) = auc_insamp(biter, B.W, B.H; iters=iters)
 
+# AUC on hold out sample
+#function auc_outsamp(biter::BPR_iter, W::AbstractArray{Real, 2}, H::AbstractArray{Real, 2})
+function auc_outsamp(biter::BPR_iter, W, H)
+    sm = 0
+    @inbounds @simd for user in 1:biter.nusers
+        rand_pos = rand(biter.pos_prods[user])
+        rand_neg = rand(biter.neg_prods[user])
+        wuf = @view(W[user, :])
+        hif_hold = @view(H[biter.pos_holdouts[user], :])
+        hjf_hold = @view(H[biter.neg_holdouts[user], :])
+        hif_rand = @view(H[rand(biter.pos_prods[user]), :])
+        hjf_rand = @view(H[rand(biter.neg_prods[user]), :])
+        sm += ((wuf' * hif_hold - wuf' * hjf_rand) > 0) + ((wuf' * hif_rand - wuf' * hjf_hold) > 0)
+    end
+    return sm / (2 * biter.nusers)
+end
 
+auc_outsamp(biter::BPR_iter, B::BPRResult) = auc_outsamp(biter, B.W, B.H)
 
 #function BPR_AUC(allbutone, holdouts, ...)
 #    # remove one data item per user
