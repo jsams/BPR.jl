@@ -5,7 +5,7 @@ Factorization](https://dl.acm.org/citation.cfm?id=1795167).
 ```julia
 Pkg.clone("https://github.com/jsams/BPR.jl.git")
 using BPR
-# generate some data. The values are unimportant, only non-zero versus > 0
+# generate some data. The values are unimportant, only zero versus > 0
 X = sprand(3000, 4000, 0.05)
 # by creating an iterator from the data, can re-use it for other runs
 biter = BPR.BPR_iter(X)
