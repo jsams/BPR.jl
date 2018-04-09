@@ -188,13 +188,17 @@ function bpr(biter::BPR_iter, k, λw, λhp, λhn, α;
             converged = true
             break
         elseif (max_iters > 0) & (iters >= max_iters)
-            ProgressMeter.cancel!(progress, "max iters reached")
-            ProgressMeter.cancel!(auc_progress, "max iters reached")
+            ProgressMeter.cancel(progress, "max iters reached")
+            if min_auc > 0
+                ProgressMeter.cancel(auc_progress, "max iters reached")
+            end
             warn("max iters reached without convergence, breaking.")
             break
         elseif isnan(stepsize)
-            ProgressMeter.cancel!(progress, "NaNs found")
-            ProgressMeter.cancel!(auc_progress, "NaNs found")
+            ProgressMeter.cancel(progress, "NaNs found")
+            if min_auc > 0
+                ProgressMeter.cancel(auc_progress, "NaNs found")
+            end
             warn("stepsize is nan, breaking.")
             break
         end
