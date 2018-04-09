@@ -14,6 +14,7 @@ mutable struct BPRResult
     bpr_opt::Real
     auc_insample::Real
     auc_outsample::Real
+    auc_outsample2::Real
     iters::Integer
     # run settings
     k::Integer
@@ -39,6 +40,7 @@ function Base.string(B::BPRResult)
           bpr_opt:        $(B.bpr_opt)
           auc_insample:   $(B.auc_insample)
           auc_outsample:  $(B.auc_outsample)
+          auc_outsample2:  $(B.auc_outsample2)
           iters:          $(B.iters)"""
 end
 
@@ -204,8 +206,10 @@ function bpr(biter::BPR_iter, k, λw, λhp, λhn, α;
         end
     end
     auc_oos = auc_outsamp(biter, W, H)
-    return BPRResult(converged, stepsize, bpr_new, cur_auc, auc_oos, iters, k,
-                     λw, λhp, λhn, α , tol, max_iters, min_iters, min_auc, W, H)
+    auc_oos2 = auc_outsamp2(biter, W, H)
+    return BPRResult(converged, stepsize, bpr_new, cur_auc, auc_oos, auc_oos2,
+                     iters, k, λw, λhp, λhn, α , tol, max_iters, min_iters,
+                     min_auc, W, H)
 end
 
 function bpr(data::AbstractArray{<:Real, 2}, k, λw, λhp, λhn, α; 
@@ -220,7 +224,7 @@ function bpr(data::AbstractArray{<:Real, 2}, k, λw, λhp, λhn, α;
     biter = BPR_iter(data)
     return bpr(biter, k, λw, λhp, λhn, α;
                tol=tol, loop_size=loop_size, max_iters=max_iters,
-               min_iters=min_iters, min_auc=min_auc, W=W< H=H)
+               min_iters=min_iters, min_auc=min_auc, W=W, H=H)
 end
 
 function bpr(data::AbstractArray{<:Real, 2}, B::BPRResult)
@@ -269,6 +273,19 @@ function auc_outsamp(biter::BPR_iter, W, H)
 end
 
 auc_outsamp(biter::BPR_iter, B::BPRResult) = auc_outsamp(biter, B.W, B.H)
+
+function auc_outsamp2(biter::BPR.BPR_iter, W, H)
+    sm = 0
+    @inbounds @simd for user in 1:biter.nusers
+        wuf = @view(W[user, :])
+        hif_hold = @view(H[biter.pos_holdouts[user], :])
+        hjf_hold = @view(H[biter.neg_holdouts[user], :])
+        sm += ((wuf' * hif_hold - wuf' * hjf_hold) > 0)
+    end
+    return sm / biter.nusers
+end
+
+auc_outsamp2(biter::BPR_iter, B::BPRResult) = auc_outsamp2(biter, B.W, B.H)
 
 #function BPR_AUC(allbutone, holdouts, ...)
 #    # remove one data item per user
