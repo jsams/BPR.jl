@@ -288,7 +288,7 @@ end
 auc_outsamp2(biter::BPR_iter, B::BPRResult) = auc_outsamp2(biter, B.W, B.H)
 
 function grid_search(data::AbstractArray{<:Real, 2};
-                     ks=linspace(10, 100, 3),
+                     ks=Integer.(linspace(10, 100, 3)),
                      λws=linspace(0.001, 0.1, 3),
                      λhps=linspace(0.001, 0.1, 3),
                      λhns=linspace(0.001, 0.1, 3),
@@ -307,19 +307,6 @@ function grid_search(data::AbstractArray{<:Real, 2};
         iterover)
     return results
 end
-
-#function BPR_AUC(allbutone, holdouts, ...)
-#    # remove one data item per user
-#    bpr = BPR(allbutone, ...)
-#    auc = AUC(bpr, holdouts)
-#
-#
-#
-#end
-
-
-
-
 
 end #module
 
