@@ -159,7 +159,8 @@ function bpr(biter::BPR_iter, k, λw, λhp, λhn, α;
     while true
         bpr_new = 0.0
         cur_auc = 0.0
-        @inbounds @simd for _ in 1:loop_size # simd be might be bad with random next()
+        @inbounds for _ in 1:loop_size # simd be might be bad with random next()
+        #@inbounds @simd for _ in 1:loop_size # simd be might be bad with random next()
             (user, pos_prod, neg_prod), _ = next(biter, nothing) # expensive: 222
             wuf = @view(W[user, :])
             hif = @view(H[pos_prod, :])
