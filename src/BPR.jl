@@ -3,7 +3,7 @@ module BPR
 import Base
 using ProgressMeter
 
-export BPRResult, BPR_iter, bpr, auc_insamp, auc_outsamp
+export BPRResult, BPR_iter, bpr, auc_insamp, auc_outsamp, auc_outsamp2, grid_search
 
 
 # e.g. to allow change to tol for new run
@@ -286,6 +286,24 @@ function auc_outsamp2(biter::BPR.BPR_iter, W, H)
 end
 
 auc_outsamp2(biter::BPR_iter, B::BPRResult) = auc_outsamp2(biter, B.W, B.H)
+
+function grid_search(data::AbstractArray{<:Real, 2};
+                     ks=linspace(10, 100, 3)
+                     λws=linspace(0.001, 0.1, 3),
+                     λhps=linspace(0.001, 0.1, 3),
+                     λhns=linspace(0.001, 0.1, 3),
+                     αs=linspace(0.001, 0.1, 3),
+                     tol=1e-5, loop_size=4096, max_iters=0, min_iters=1,
+                     min_auc=0.0)
+    results = @sync @parallel for (i, (k, λw, λhp, λhn, α)) = enumerate(reshape(collect(Iterators.product(ks, λws, λhps, λhns, αs)),  :))
+        biter = BPR.BPR_iter(data) # eventually put this in a loop
+        res = BPR.bpr(biter, k, λw, λhp, λhn, α;
+                  tol=tol, loop_size=loop_size, max_iters=max_iters,
+                  min_iters=min_iters, min_auc=min_auc)
+        results[i] = (k, λw, λhp, λhn, α, res)
+    end
+    return results
+end
 
 #function BPR_AUC(allbutone, holdouts, ...)
 #    # remove one data item per user
