@@ -2,6 +2,7 @@ module BPR
 
 import Base
 using DataFrames
+using DataStructures
 using ProgressMeter
 
 export BPRResult, BPR_iter, bpr, auc_insamp, auc_outsamp, auc_outsamp2, grid_search
@@ -289,7 +290,7 @@ end
 
 auc_outsamp2(biter::BPR_iter, B::BPRResult) = auc_outsamp2(biter, B.W, B.H)
 
-function grid_search(data::AbstractArray{<:Real, 2};
+function grid_search(data::AbstractArray{<:Real, 2}; sample_count=1,
                      ks=Integer.(linspace(10, 100, 3)),
                      λws=linspace(0.001, 0.1, 3),
                      λhps=linspace(0.001, 0.1, 3),
@@ -297,33 +298,35 @@ function grid_search(data::AbstractArray{<:Real, 2};
                      αs=linspace(0.001, 0.1, 3),
                      tol=1e-5, loop_size=4096, max_iters=0, min_iters=1,
                      min_auc=0.0)
-    iterover = reshape(collect(Iterators.product(ks, λws, λhps, λhns, αs)),  :)
+    iterover = repeat(reshape(collect(Iterators.product(ks, λws, λhps, λhns, αs)),
+                              :), inner=[sample_count])
     results = pmap(params -> begin
             biter = BPR.BPR_iter(data)
             k, λw, λhp, λhn, α = params
             res = BPR.bpr(biter, k, λw, λhp, λhn, α;
                       tol=tol, loop_size=loop_size, max_iters=max_iters,
                       min_iters=min_iters, min_auc=min_auc)
-            res.W = res.H = nothing # save memory, this is for hyperparam search
+            res.W = res.H = [0 0; 0 0] # save memory, this is for hyperparam search
             return res
         end,
         iterover)
-    df = DataFrame(Dict("converged" => [res.converged for res in results],
-                        "value" => [res.value for res in results],
-                        "bpr_opt" => [res.bpr_opt for res in results],
-                        "auc_insample" => [res.auc_insample for res in results],
-                        "auc_outsample" => [res.auc_outsample for res in results],
-                        "auc_outsample2" => [res.auc_outsample2 for res in results],
-                        "iters" => [res.iters for res in results],
-                        "k" => [res.k for res in results],
-                        "lw" => [res.λw for res in results],
-                        "lhp" => [res.λhp for res in results],
-                        "lhn" => [res.λhn for res in results],
-                        "alpha" => [res.α for res in results],
-                        "tol" => [res.tol for res in results],
-                        "max_iters" => [res.max_iters for res in results],
-                        "min_iters" => [res.min_iters for res in results],
-                        "min_auc" => [res.min_auc for res in results]))
+    df = DataFrame(OrderedDict(
+                   "converged" => [res.converged for res in results],
+                   "value" => [res.value for res in results],
+                   "bpr_opt" => [res.bpr_opt for res in results],
+                   "auc_insample" => [res.auc_insample for res in results],
+                   "auc_outsample" => [res.auc_outsample for res in results],
+                   "auc_outsample2" => [res.auc_outsample2 for res in results],
+                   "iters" => [res.iters for res in results],
+                   "k" => [res.k for res in results],
+                   "lw" => [res.λw for res in results],
+                   "lhp" => [res.λhp for res in results],
+                   "lhn" => [res.λhn for res in results],
+                   "alpha" => [res.α for res in results],
+                   "tol" => [res.tol for res in results],
+                   "max_iters" => [res.max_iters for res in results],
+                   "min_iters" => [res.min_iters for res in results],
+                   "min_auc" => [res.min_auc for res in results]))
     return df
 end
 
