@@ -1,6 +1,7 @@
 module BPR
 
 import Base
+using DataFrames
 using ProgressMeter
 
 export BPRResult, BPR_iter, bpr, auc_insamp, auc_outsamp, auc_outsamp2, grid_search
@@ -303,10 +304,27 @@ function grid_search(data::AbstractArray{<:Real, 2};
             res = BPR.bpr(biter, k, λw, λhp, λhn, α;
                       tol=tol, loop_size=loop_size, max_iters=max_iters,
                       min_iters=min_iters, min_auc=min_auc)
-            (k, λw, λhp, λhn, α, res)
+            res.W = res.H = nothing # save memory, this is for hyperparam search
+            return res
         end,
         iterover)
-    return results
+    df = DataFrame(Dict("converged" => [res.converged for res in results],
+                        "value" => [res.value for res in results],
+                        "bpr_opt" => [res.bpr_opt for res in results],
+                        "auc_insample" => [res.auc_insample for res in results],
+                        "auc_outsample" => [res.auc_outsample for res in results],
+                        "auc_outsample2" => [res.auc_outsample2 for res in results],
+                        "iters" => [res.iters for res in results],
+                        "k" => [res.k for res in results],
+                        "lw" => [res.λw for res in results],
+                        "lhp" => [res.λhp for res in results],
+                        "lhn" => [res.λhn for res in results],
+                        "alpha" => [res.α for res in results],
+                        "tol" => [res.tol for res in results],
+                        "max_iters" => [res.max_iters for res in results],
+                        "min_iters" => [res.min_iters for res in results],
+                        "min_auc" => [res.min_auc for res in results]))
+    return df
 end
 
 end #module
