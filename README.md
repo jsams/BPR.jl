@@ -24,3 +24,20 @@ bpr.auc_outsample
 # matrix of predicted rankings from
 bpr.W * bpr.H'
 ```
+
+To figure out hyperparamters (number of dimensions, regularizations, and
+learning rate), a handy function, `grid_search` can help you with that. It
+takes the data and a vector for each parameter to search over, and constructs
+the grid of all those points, running the algorithm for each grid point
+`sample_count` times. It constructs a new hold out sample for each run. It
+returns a DataFrame with the convergence properties and run settings as the
+columns minus the resulting parameterization. It is built to run in parallel,
+so starting julia with `-p#` will run in parallel on `#` separate processes.
+
+```
+griddf = grid_search(X, sample_count=2; max_iters=100)
+```
+
+Up to you to analyze griddf as to whether you need to refine the grid search or
+select the optimal hyperparamters.
+

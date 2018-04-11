@@ -2,7 +2,6 @@ module BPR
 
 import Base
 using DataFrames
-using DataStructures
 using ProgressMeter
 
 export BPRResult, BPR_iter, bpr, auc_insamp, auc_outsamp, auc_outsamp2, grid_search
@@ -306,27 +305,26 @@ function grid_search(data::AbstractArray{<:Real, 2}; sample_count=1,
             res = BPR.bpr(biter, k, λw, λhp, λhn, α;
                       tol=tol, loop_size=loop_size, max_iters=max_iters,
                       min_iters=min_iters, min_auc=min_auc)
-            res.W = res.H = [0 0; 0 0] # save memory, this is for hyperparam search
-            return res
+            df = DataFrame(converged = res.converged,
+                           value = res.value,
+                           bpr_opt = res.bpr_opt,
+                           auc_insample = res.auc_insample,
+                           auc_outsample = res.auc_outsample,
+                           auc_outsample2 = res.auc_outsample2,
+                           iters = res.iters,
+                           k = res.k,
+                           lw = res.λw,
+                           lhp = res.λhp,
+                           lhn = res.λhn,
+                           alpha = res.α,
+                           tol = res.tol,
+                           max_iters = res.max_iters,
+                           min_iters = res.min_iters,
+                           min_auc = res.min_auc)
+            return df
         end,
         iterover)
-    df = DataFrame(OrderedDict(
-                   "converged" => [res.converged for res in results],
-                   "value" => [res.value for res in results],
-                   "bpr_opt" => [res.bpr_opt for res in results],
-                   "auc_insample" => [res.auc_insample for res in results],
-                   "auc_outsample" => [res.auc_outsample for res in results],
-                   "auc_outsample2" => [res.auc_outsample2 for res in results],
-                   "iters" => [res.iters for res in results],
-                   "k" => [res.k for res in results],
-                   "lw" => [res.λw for res in results],
-                   "lhp" => [res.λhp for res in results],
-                   "lhn" => [res.λhn for res in results],
-                   "alpha" => [res.α for res in results],
-                   "tol" => [res.tol for res in results],
-                   "max_iters" => [res.max_iters for res in results],
-                   "min_iters" => [res.min_iters for res in results],
-                   "min_auc" => [res.min_auc for res in results]))
+    df = vcat(results...)
     return df
 end
 
