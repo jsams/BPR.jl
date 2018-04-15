@@ -48,8 +48,7 @@ end
 Base.show(io::Base.IO, B::BPRResult) = print(io, string(B))
 
 # data properties in convenient format with iterator protocol
-struct BPR_iter{T<:Real}
-    data::AbstractArray{T, 2}
+struct BPR_iter
     nusers::Integer
     nprods::Integer
     users::UnitRange{<:Integer}
@@ -99,9 +98,10 @@ function BPR_iter(data::AbstractArray{T, 2}) where T
         deleteat!(pos_prods[user], pitemidx)
         deleteat!(neg_prods[user], nitemidx)
     end
-    return BPR_iter(data, nusers, nprods, users, prods, pos_prods, neg_prods,
+    return BPR_iter(nusers, nprods, users, prods, pos_prods, neg_prods,
                     pos_holdouts, neg_holdouts)
 end
+
 Base.string(bpr::BPR_iter) = "$(bpr.nusers) x $(bpr.nprods) BPR_iter"
 Base.show(io::Base.IO, bpr::BPR_iter) = print(io, string(bpr))
 Base.start(bpr::BPR_iter) = nothing
@@ -276,7 +276,7 @@ end
 
 auc_outsamp(biter::BPR_iter, B::BPRResult) = auc_outsamp(biter, B.W, B.H)
 
-function auc_outsamp2(biter::BPR.BPR_iter, W, H)
+function auc_outsamp2(biter::BPR_iter, W, H)
     sm = 0
     @inbounds @simd for user in 1:biter.nusers
         wuf = @view(W[user, :])
@@ -291,18 +291,18 @@ auc_outsamp2(biter::BPR_iter, B::BPRResult) = auc_outsamp2(biter, B.W, B.H)
 
 function grid_search(data::AbstractArray{<:Real, 2}; sample_count=1,
                      ks=Integer.(linspace(10, 100, 3)),
-                     λws=linspace(0.001, 0.1, 3),
-                     λhps=linspace(0.001, 0.1, 3),
-                     λhns=linspace(0.001, 0.1, 3),
+                     λws=-linspace(0.001, 0.1, 3),
+                     λhps=-linspace(0.001, 0.1, 3),
+                     λhns=-linspace(0.001, 0.1, 3),
                      αs=linspace(0.001, 0.1, 3),
                      tol=1e-5, loop_size=4096, max_iters=0, min_iters=1,
                      min_auc=0.0)
     iterover = repeat(reshape(collect(Iterators.product(ks, λws, λhps, λhns, αs)),
                               :), inner=[sample_count])
     results = pmap(params -> begin
-            biter = BPR.BPR_iter(data)
+            biter = BPR_iter(data)
             k, λw, λhp, λhn, α = params
-            res = BPR.bpr(biter, k, λw, λhp, λhn, α;
+            res = bpr(biter, k, λw, λhp, λhn, α;
                       tol=tol, loop_size=loop_size, max_iters=max_iters,
                       min_iters=min_iters, min_auc=min_auc)
             df = DataFrame(converged = res.converged,
