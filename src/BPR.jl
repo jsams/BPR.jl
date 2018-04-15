@@ -4,7 +4,8 @@ import Base
 using DataFrames
 using ProgressMeter
 
-export BPRResult, BPR_iter, bpr, auc_insamp, auc_outsamp, auc_outsamp2, grid_search
+export BPRResult, BPRIter, BPRIterDense, BPRIterSparse, bpr, auc_insamp,
+       auc_outsamp, auc_outsamp2, grid_search
 
 
 # e.g. to allow change to tol for new run
@@ -47,8 +48,15 @@ end
 
 Base.show(io::Base.IO, B::BPRResult) = print(io, string(B))
 
+# needs nusers, nprods, and next() / iterator protocol
+
 # data properties in convenient format with iterator protocol
-struct BPR_iter
+abstract type  AbstractBPRIter end
+
+Base.string(bpr::AbstractBPRIter) = "$(bpr.nusers) x $(bpr.nprods) $(typeof(bpr))"
+Base.show(io::Base.IO, bpr::AbstractBPRIter) = print(io, string(bpr))
+
+struct BPRIterDense <: AbstractBPRIter
     nusers::Integer
     nprods::Integer
     users::UnitRange{<:Integer}
@@ -71,7 +79,7 @@ end
     Sparse matrix is supported.
 
     See Rendle 2009 paper for definition of the uniform sampling strategy."""
-function BPR_iter(data::AbstractArray{T, 2}) where T
+function BPRIterDense(data::AbstractArray{T, 2}) where T
     # do any users see only one item? filter out b/c can't do hold out with
     # them
     good_users = find(x -> (x>1),
@@ -98,11 +106,11 @@ function BPR_iter(data::AbstractArray{T, 2}) where T
         deleteat!(pos_prods[user], pitemidx)
         deleteat!(neg_prods[user], nitemidx)
     end
-    return BPR_iter(nusers, nprods, users, prods, pos_prods, neg_prods,
-                    pos_holdouts, neg_holdouts)
+    return BPRIterDense(nusers, nprods, users, prods, pos_prods, neg_prods,
+                        pos_holdouts, neg_holdouts)
 end
 
-function BPR_iter(B::BPR_iter)
+function BPRIterDense(B::BPRIterDense)
     pos_prods = deepcopy(B.pos_prods)
     neg_prods = deepcopy(B.neg_prods)
     pos_holdouts = deepcopy(B.pos_holdouts)
@@ -119,15 +127,13 @@ function BPR_iter(B::BPR_iter)
             neg_prods[user][nidx], neg_holdouts[user] = neg_holdouts[user], neg_prods[user][nidx]
         end
     end
-    return BPR_iter(B.nusers, B.nprods, copy(B.users), copy(B.prods),
-                    pos_prods, neg_prods, pos_holdouts, neg_holdouts)
+    return BPRIterDense(B.nusers, B.nprods, copy(B.users), copy(B.prods),
+                        pos_prods, neg_prods, pos_holdouts, neg_holdouts)
 end
 
-Base.string(bpr::BPR_iter) = "$(bpr.nusers) x $(bpr.nprods) BPR_iter"
-Base.show(io::Base.IO, bpr::BPR_iter) = print(io, string(bpr))
-Base.start(bpr::BPR_iter) = nothing
+Base.start(bpr::AbstractBPRIter) = nothing
 
-function Base.next(bpr::BPR_iter, state)
+function Base.next(bpr::BPRIterDense, state)
     user = rand(bpr.users)
     # views don't work here, and i'm not sure that they are necessary
     pos_prod = rand(bpr.pos_prods[user])
@@ -135,16 +141,70 @@ function Base.next(bpr::BPR_iter, state)
     return (user, pos_prod, neg_prod), nothing
 end
 
-Base.done(bpr::BPR_iter, state) = false
+Base.done(bpr::AbstractBPRIter, state) = false
 
-Base.iteratorsize(bpr::BPR_iter) = Base.IsInfinite()
+Base.iteratorsize(bpr::AbstractBPRIter) = Base.IsInfinite()
 
-Base.iteratoreltype(bpr::BPR_iter) = typeof((bpr.users[1], bpr.pos_prods[1][1],
+Base.iteratoreltype(bpr::BPRIterDense) = typeof((bpr.users[1], bpr.pos_prods[1][1],
                                              bpr.neg_prods[1][1]))
+
+
+struct BPRIterSparse <: AbstractBPRIter
+    nusers::Integer
+    nprods::Integer
+    users::UnitRange{<:Integer}
+    prods::Set
+    pos_prods::AbstractArray{Set{<:Integer}, 1}
+    pos_holdouts::AbstractArray{<:Integer, 1}
+    neg_holdouts::AbstractArray{<:Integer, 1}
+end
+
+function BPRIterSparse(data::AbstractArray{T, 2}) where T
+    good_users = find(x -> (x>1),
+                      sum(x -> x > 0, data, 2))
+    if size(good_users, 1) < size(data, 1)
+        warn("$(size(data, 1) - size(good_users, 1)) users were removed for insufficient data.")
+        data = data[good_users, :]
+    end
+    if any(sum(data, 1) .== 0)
+        error("some columns sum to 0. Fix your data. bailing.")
+    end
+    nusers, nprods = size(data)
+    users = 1:nusers
+    prods = Set(1:nprods)
+    pos_prods = [Set(find(data[user, :] .> 0)) for user in users]
+    S = eltype(pos_prods[1])
+    pos_holdouts = zeros(S, nusers)
+    neg_holdouts = zeros(S, nusers)
+    for user in users
+        pitem = rand(pos_prods[user])
+        pos_holdouts[user] = pop!(pos_prods[user], pitem)
+        neg_holdouts[user] = rand(setdiff(prods, pos_prods[user]))
+    end
+    return BPRIterSparse(nusers, nprods, users, prods, pos_prods, pos_holdouts,
+                         neg_holdouts)
+end
+
+function Base.next(B::BPRIterSparse, state)
+    user = rand(B.users)
+    pos_prod = @views rand(B.pos_prods[user])
+    neg_prod = @views rand(setdiff(setdiff(B.prods, B.pos_prods[user]),
+                                   Set(B.neg_holdouts[user])))
+    return (user, pos_prod, neg_prod), nothing
+end
+
+Base.iteratoreltype(bpr::BPRIterSparse) = typeof((bpr.users[1],
+                                                 zero(eltype(bpr.pos_prods[1])),
+                                                 zero(eltype(bpr.pos_prods[1]))))
+
+# the defaults for our best guess of the most performant type
+BPRIter(data::AbstractArray) = BPRIterDense(data)
+BPRIter(B::BPRIterDense) = BPRIterDense(B)
+
 
 """
     find optimal W and H matrix for bpr matrix factorization, returns BPRResult
-    * biter: object from BPR_iter
+    * biter: object from AbstractBPRIter
     * k: number of dimensions to learn
     * λw: regularization on user features, 
     * λhp: regularization on positive updates on items
@@ -160,7 +220,7 @@ Base.iteratoreltype(bpr::BPR_iter) = typeof((bpr.users[1], bpr.pos_prods[1][1],
       least this good before being considered converged
     * W: an initialized W parameter matrix (nuser x k)
     * H: an initialized H parameter matrix (nprod x k)"""
-function bpr(biter::BPR_iter, k, λw, λhp, λhn, α; 
+function bpr(biter::AbstractBPRIter, k, λw, λhp, λhn, α;
              tol=1e-5, loop_size=256, max_iters=0, min_iters=1, min_auc=0.0,
              W=randn(biter.nusers, k), H=randn(biter.nprods, k))
     if biter.nusers < k | biter.nprods < k
@@ -244,7 +304,7 @@ function bpr(data::AbstractArray{<:Real, 2}, k, λw, λhp, λhn, α;
     end
     # quick lookups for each user of consumed and unconsumed items
     info("Initializing iterator")
-    biter = BPR_iter(data)
+    biter = BPRIter(data)
     return bpr(biter, k, λw, λhp, λhn, α;
                tol=tol, loop_size=loop_size, max_iters=max_iters,
                min_iters=min_iters, min_auc=min_auc, W=W, H=H)
@@ -256,14 +316,14 @@ function bpr(data::AbstractArray{<:Real, 2}, B::BPRResult)
         min_auc=B.min_auc, W=copy(B.W), H=copy(B.H))
 end
 
-function bpr(biter::BPR_iter, B::BPRResult)
+function bpr(biter::AbstractBPRIter, B::BPRResult)
     bpr(biter, B.k, B.λw, B.λhp, B.λhn, B.α;
         tol=B.tol, max_iters=B.max_iters, min_iters=B.min_iters, min_auc=B.min_auc,
         W=copy(B.W), H=copy(B.H))
 end
 
 # AUC computed on random in-sample
-function auc_insamp(biter::BPR_iter, W::AbstractArray{<:Real, 2},
+function auc_insamp(biter::AbstractBPRIter, W::AbstractArray{<:Real, 2},
                     H::AbstractArray{<:Real, 2}; iters=4096)
     sm = 0
     @inbounds @simd for _ in 1:iters
@@ -276,11 +336,11 @@ function auc_insamp(biter::BPR_iter, W::AbstractArray{<:Real, 2},
     return sm / iters
 end
 
-auc_insamp(biter::BPR_iter, B::BPRResult; iters=4096) = auc_insamp(biter, B.W, B.H; iters=iters)
+auc_insamp(biter::AbstractBPRIter, B::BPRResult; iters=4096) = auc_insamp(biter, B.W, B.H; iters=iters)
 
 # AUC on hold out sample
-#function auc_outsamp(biter::BPR_iter, W::AbstractArray{Real, 2}, H::AbstractArray{Real, 2})
-function auc_outsamp(biter::BPR_iter, W, H)
+#function auc_outsamp(biter::BPRIter, W::AbstractArray{Real, 2}, H::AbstractArray{Real, 2})
+function auc_outsamp(biter::AbstractBPRIter, W, H)
     sm = 0
     @inbounds @simd for user in 1:biter.nusers
         rand_pos = rand(biter.pos_prods[user])
@@ -295,9 +355,9 @@ function auc_outsamp(biter::BPR_iter, W, H)
     return sm / (2 * biter.nusers)
 end
 
-auc_outsamp(biter::BPR_iter, B::BPRResult) = auc_outsamp(biter, B.W, B.H)
+auc_outsamp(biter::AbstractBPRIter, B::BPRResult) = auc_outsamp(biter, B.W, B.H)
 
-function auc_outsamp2(biter::BPR_iter, W, H)
+function auc_outsamp2(biter::AbstractBPRIter, W, H)
     sm = 0
     @inbounds @simd for user in 1:biter.nusers
         wuf = @view(W[user, :])
@@ -308,7 +368,7 @@ function auc_outsamp2(biter::BPR_iter, W, H)
     return sm / biter.nusers
 end
 
-auc_outsamp2(biter::BPR_iter, B::BPRResult) = auc_outsamp2(biter, B.W, B.H)
+auc_outsamp2(biter::AbstractBPRIter, B::BPRResult) = auc_outsamp2(biter, B.W, B.H)
 
 function grid_search(data::AbstractArray{<:Real, 2}; sample_count=1,
                      ks=Integer.(linspace(10, 100, 3)),
@@ -320,9 +380,9 @@ function grid_search(data::AbstractArray{<:Real, 2}; sample_count=1,
                      min_auc=0.0)
     iterover = repeat(reshape(collect(Iterators.product(ks, λws, λhps, λhns, αs)),
                               :), inner=[sample_count])
-    biterorig = BPR_iter(data)
+    biterorig = BPRIter(data)
     results = pmap(params -> begin
-            biter = BPR_iter(biterorig)
+            biter = BPRIter(biterorig)
             k, λw, λhp, λhn, α = params
             res = bpr(biter, k, λw, λhp, λhn, α;
                       tol=tol, loop_size=loop_size, max_iters=max_iters,
