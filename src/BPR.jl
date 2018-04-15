@@ -87,7 +87,7 @@ function BPR_iter(data::AbstractArray{T, 2}) where T
     users = 1:nusers
     prods = IntSet(1:nprods)
     pos_prods = [find(data[user, :] .> 0) for user in users]
-    neg_prods = [sort(collect(setdiff(prods, posprod))) for posprod in pos_prods]
+    neg_prods = [collect(setdiff(prods, posprod)) for posprod in pos_prods]
     pos_holdouts = zeros(eltype(pos_prods[1]), nusers)
     neg_holdouts = zeros(eltype(neg_prods[1]), nusers)
     for user in users
@@ -100,6 +100,27 @@ function BPR_iter(data::AbstractArray{T, 2}) where T
     end
     return BPR_iter(nusers, nprods, users, prods, pos_prods, neg_prods,
                     pos_holdouts, neg_holdouts)
+end
+
+function BPR_iter(B::BPR_iter)
+    pos_prods = deepcopy(B.pos_prods)
+    neg_prods = deepcopy(B.neg_prods)
+    pos_holdouts = deepcopy(B.pos_holdouts)
+    neg_holdouts = deepcopy(B.neg_holdouts)
+    for user in B.users
+        Np = size(pos_prods[user], 1) + 1
+        pidx = rand(1:Np)
+        if pidx != Np
+            pos_prods[user][pidx], pos_holdouts[user] = pos_holdouts[user], pos_prods[user][pidx]
+        end
+        Nn = size(neg_prods[user], 1) + 1
+        nidx = rand(1:Nn)
+        if nidx != Nn
+            neg_prods[user][nidx], neg_holdouts[user] = neg_holdouts[user], neg_prods[user][nidx]
+        end
+    end
+    return BPR_iter(B.nusers, B.nprods, copy(B.users), copy(B.prods),
+                    pos_prods, neg_prods, pos_holdouts, neg_holdouts)
 end
 
 Base.string(bpr::BPR_iter) = "$(bpr.nusers) x $(bpr.nprods) BPR_iter"
@@ -299,8 +320,9 @@ function grid_search(data::AbstractArray{<:Real, 2}; sample_count=1,
                      min_auc=0.0)
     iterover = repeat(reshape(collect(Iterators.product(ks, λws, λhps, λhns, αs)),
                               :), inner=[sample_count])
+    biterorig = BPR_iter(data)
     results = pmap(params -> begin
-            biter = BPR_iter(data)
+            biter = BPR_iter(biterorig)
             k, λw, λhp, λhn, α = params
             res = bpr(biter, k, λw, λhp, λhn, α;
                       tol=tol, loop_size=loop_size, max_iters=max_iters,
