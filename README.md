@@ -41,3 +41,11 @@ griddf = grid_search(X, sample_count=2; max_iters=100)
 Up to you to analyze griddf as to whether you need to refine the grid search or
 select the optimal hyperparamters.
 
+# TODO
+ * would be best not to store negative examples per user for memory reasons,
+   but how to efficiently choose among them without storing them? Sets aren't
+   THAT fast.  benchmarks.jl suggests ~1.5s for 2500 iterations versus 0.02s. Not
+   acceptable.
+ * accessing W,H arrays by row instead of by column...whoops
+ * uniform sampling is maybe not quite uniform, read paper to uniform over what.
+
