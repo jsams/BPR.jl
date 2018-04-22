@@ -322,6 +322,9 @@ function bpr(biter::AbstractBPRIter, k, λw, λhp, λhn, α;
     if min_auc > 0
         auc_progress = ProgressThresh(1-min_auc, "AUC:")
     end
+    if min_iters > 1
+        iters_progress = Progress(min_iters, "Min Iters:")
+    end
     info("Starting BPR loop.")
     while true
         bpr_new = 0.0
@@ -354,6 +357,9 @@ function bpr(biter::AbstractBPRIter, k, λw, λhp, λhn, α;
         if min_auc > 0
             ProgressMeter.update!(auc_progress, cur_auc)
         end
+        if min_iters > 1
+            ProgressMeter.update!(iters_progress, cur_auc)
+        end
         if (iters > min_iters) & (stepsize < tol) & (cur_auc > min_auc)
             converged = true
             break
@@ -362,12 +368,18 @@ function bpr(biter::AbstractBPRIter, k, λw, λhp, λhn, α;
             if min_auc > 0
                 ProgressMeter.cancel(auc_progress, "max iters reached")
             end
+            if min_iters > 1
+                ProgressMeter.cancel(iters_progress, "max iters reached")
+            end
             warn("max iters reached without convergence, breaking.")
             break
         elseif isnan(stepsize)
             ProgressMeter.cancel(progress, "NaNs found")
             if min_auc > 0
                 ProgressMeter.cancel(auc_progress, "NaNs found")
+            end
+            if min_iters > 1
+                ProgressMeter.cancel(iters_progress, "NaNs found")
             end
             warn("stepsize is nan, breaking.")
             break
