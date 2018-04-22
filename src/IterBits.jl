@@ -1,13 +1,13 @@
 # does NOT support offset bitsets
 "randomly sample from the complement of the set over the range of range"
-function rand_compl(b::BitSet, range::UnitRange{Integer})
+function rand_compl(b::BitSet, range::UnitRange)
     while true
         n = rand(range)
         !(n in b) && return n
     end
 end
 
-function rand_compl(b::BitSet, range::UnitRange{Integer}, N::Integer)
+function rand_compl(b::BitSet, range::UnitRange, N::Integer)
     return [rand_compl(b, range) for _ in 1:N]
 end
 
@@ -58,7 +58,7 @@ end
     return (nextpos(user, B), nextneg(user, B))
 end
 
-@inline function draw_holdout(user::Integer, B:BPRIterBits)
+@inline function draw_holdout(user::Integer, B::BPRIterBits)
     return (B.pos_holdouts[user], B.neg_holdouts[user])
 end
 

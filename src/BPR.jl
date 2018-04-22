@@ -5,7 +5,7 @@ using DataFrames
 using ProgressMeter
 
 export BPRResult, BPRIter, BPRIterBits, BPRIterDense, BPRIterSparse, bpr, auc_insamp,
-       auc_outsamp, auc_outsamp2, grid_search
+       auc_outsamp, auc_outsamp2, grid_search, draw_upn_tup, draw_posneg, draw_holdout
 
 
 # e.g. to allow change to tol for new run
