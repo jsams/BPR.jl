@@ -221,7 +221,7 @@ BPRIter(B::BPRIterDense) = BPRIterDense(B)
     * W: an initialized W parameter matrix (nuser x k)
     * H: an initialized H parameter matrix (nprod x k)"""
 function bpr(biter::AbstractBPRIter, k, λw, λhp, λhn, α;
-             tol=1e-5, loop_size=256, max_iters=0, min_iters=1, min_auc=0.0,
+             tol=1e-5, loop_size=4096, max_iters=0, min_iters=1, min_auc=0.0,
              W=randn(biter.nusers, k), H=randn(biter.nprods, k))
     if biter.nusers < k | biter.nprods < k
         error("Number of rows and columns must both be greater than k, $k")
@@ -296,7 +296,7 @@ function bpr(biter::AbstractBPRIter, k, λw, λhp, λhn, α;
 end
 
 function bpr(data::AbstractArray{<:Real, 2}, k, λw, λhp, λhn, α; 
-             tol=1e-5, loop_size=256, max_iters=0, min_iters=1, min_auc=0.0,
+             tol=1e-5, loop_size=4096, max_iters=0, min_iters=1, min_auc=0.0,
              W=randn(size(data, 1), k), H=randn(size(data, 2), k))
     nusers, nprods = size(data)
     if nusers < k | nprods < k
