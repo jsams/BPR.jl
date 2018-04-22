@@ -22,7 +22,7 @@ bpr.bpr_opt
 # how well do we predict in a hold out sample
 bpr.auc_outsample 
 # matrix of predicted rankings from
-bpr.W * bpr.H'
+bpr.W' * bpr.H
 ```
 
 To figure out hyperparamters (number of dimensions, regularizations, and
@@ -46,6 +46,7 @@ select the optimal hyperparamters.
    but how to efficiently choose among them without storing them? Sets aren't
    THAT fast.  benchmarks.jl suggests ~1.5s for 2500 iterations versus 0.02s. Not
    acceptable.
- * accessing W,H arrays by row instead of by column...whoops
  * uniform sampling is maybe not quite uniform, read paper to uniform over what.
+ * fix progress meters (e.g. min_iters, auc)...maybe just kill insample auc anyway
+ * add loop size to result (whoops!)
 

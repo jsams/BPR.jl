@@ -36,7 +36,7 @@ end
 function Base.string(B::BPRResult)
     """
         BPRResult:
-          k:              $(size(B.W, 2))
+          k:              $(size(B.W, 1))
           converged:      $(B.converged)
           value:          $(B.value)
           bpr_opt:        $(B.bpr_opt)
@@ -303,11 +303,11 @@ BPRIter(B::BPRIterDense) = BPRIterDense(B)
     * min_iters: run at least this many iterations before allowing convergence.
     * min_auc: a secondary convergence criterion, in-sample AUC has to be at
       least this good before being considered converged
-    * W: an initialized W parameter matrix (nuser x k)
-    * H: an initialized H parameter matrix (nprod x k)"""
+    * W: an initialized W parameter matrix (k x nuser)
+    * H: an initialized H parameter matrix (k x nprod)"""
 function bpr(biter::AbstractBPRIter, k, λw, λhp, λhn, α;
              tol=1e-5, loop_size=4096, max_iters=0, min_iters=1, min_auc=0.0,
-             W=randn(biter.nusers, k), H=randn(biter.nprods, k))
+             W=randn(k, biter.nusers), H=randn(k, biter.nprods))
     if biter.nusers < k | biter.nprods < k
         error("Number of rows and columns must both be greater than k, $k")
     end
@@ -329,9 +329,9 @@ function bpr(biter::AbstractBPRIter, k, λw, λhp, λhn, α;
         @inbounds for _ in 1:loop_size # simd be might be bad with random next()
         #@inbounds @simd for _ in 1:loop_size # simd be might be bad with random next()
             (user, pos_prod, neg_prod), _ = next(biter, nothing) # expensive: 222
-            wuf = @view(W[user, :])
-            hif = @view(H[pos_prod, :])
-            hjf = @view(H[neg_prod, :])
+            wuf = @view(W[:, user])
+            hif = @view(H[:, pos_prod])
+            hjf = @view(H[:, neg_prod])
             xuij = wuf' * hif - wuf' * hjf
             exuij = exp(-xuij)
             sig = exuij / (1 + exuij)
@@ -382,7 +382,7 @@ end
 
 function bpr(data::AbstractArray{<:Real, 2}, k, λw, λhp, λhn, α; 
              tol=1e-5, loop_size=4096, max_iters=0, min_iters=1, min_auc=0.0,
-             W=randn(size(data, 1), k), H=randn(size(data, 2), k))
+             W=randn(k, size(data, 1)), H=randn(k, size(data, 2)))
     nusers, nprods = size(data)
     if nusers < k | nprods < k
         error("Number of rows and columns must both be greater than k, $k")
@@ -413,9 +413,9 @@ function auc_insamp(biter::AbstractBPRIter, W::AbstractArray{<:Real, 2},
     sm = 0
     @inbounds @simd for _ in 1:iters
         (user, pos_prod, neg_prod), _ = next(biter, nothing) # expensive: 222
-        wuf = @view(W[user, :])
-        hif = @view(H[pos_prod, :])
-        hjf = @view(H[neg_prod, :])
+        wuf = @view(W[:, user])
+        hif = @view(H[:, pos_prod])
+        hjf = @view(H[:, neg_prod])
         sm += (wuf' * hif - wuf' * hjf) > 0
     end
     return sm / iters
@@ -430,11 +430,11 @@ function auc_outsamp(biter::AbstractBPRIter, W, H)
     @inbounds @simd for user in 1:biter.nusers
         rand_pos = rand(biter.pos_prods[user])
         rand_neg = rand(biter.neg_prods[user])
-        wuf = @view(W[user, :])
-        hif_hold = @view(H[biter.pos_holdouts[user], :])
-        hjf_hold = @view(H[biter.neg_holdouts[user], :])
-        hif_rand = @view(H[rand(biter.pos_prods[user]), :])
-        hjf_rand = @view(H[rand(biter.neg_prods[user]), :])
+        wuf = @view(W[:, user])
+        hif_hold = @view(H[:, biter.pos_holdouts[user]])
+        hjf_hold = @view(H[:, biter.neg_holdouts[user]])
+        hif_rand = @view(H[:, rand(biter.pos_prods[user])])
+        hjf_rand = @view(H[:, rand(biter.neg_prods[user])])
         sm += ((wuf' * hif_hold - wuf' * hjf_rand) > 0) + ((wuf' * hif_rand - wuf' * hjf_hold) > 0)
     end
     return sm / (2 * biter.nusers)
@@ -445,9 +445,9 @@ auc_outsamp(biter::AbstractBPRIter, B::BPRResult) = auc_outsamp(biter, B.W, B.H)
 function auc_outsamp2(biter::AbstractBPRIter, W, H)
     sm = 0
     @inbounds @simd for user in 1:biter.nusers
-        wuf = @view(W[user, :])
-        hif_hold = @view(H[biter.pos_holdouts[user], :])
-        hjf_hold = @view(H[biter.neg_holdouts[user], :])
+        wuf = @view(W[:, user])
+        hif_hold = @view(H[:, biter.pos_holdouts[user]])
+        hjf_hold = @view(H[:, biter.neg_holdouts[user]])
         sm += ((wuf' * hif_hold - wuf' * hjf_hold) > 0)
     end
     return sm / biter.nusers
