@@ -1,7 +1,7 @@
 include("BPR.jl")
 import Main.BPR
 using BenchmarkTools
-using SparseArrays
+#using SparseArrays # looks like need for 0.7+
 
 function plain_iters(B::BPR.AbstractBPRIter; num_iters=4096)
     sm = 0
