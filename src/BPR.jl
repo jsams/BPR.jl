@@ -67,8 +67,8 @@ include("IterSparse.jl")
 include("IterBits.jl")
 
 # the defaults for our best guess of the most performant type
-BPRIter(data::AbstractArray) = BPRIterDense(data)
-BPRIter(B::BPRIterDense) = BPRIterDense(B)
+BPRIter(data::AbstractArray) = BPRIterBits(data)
+BPRIter(B::BPRIterBits) = BPRIterBits(B)
 
 
 """
