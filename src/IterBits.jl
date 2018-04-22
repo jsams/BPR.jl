@@ -1,24 +1,13 @@
 # does NOT support offset bitsets
-function rand_neg(b::BitSet)
-    lb = length(b)
+function rand_neg(b::BitSet, range::UnitRange{Integer})
     while true
-        n = rand(1:lb)
+        n = rand(range)
         !(n in b) && return n
     end
 end
 
-function rand_neg(b::BitSet, N::Integer)
-    lb = length(b)
-    x = zeros(Integer, N)
-    i = 0
-    while i < N
-        n = rand(1:lb)
-        if !(n in b)
-            i += 1
-            x[i] = n
-        end
-    end
-    return x
+function rand_neg(b::BitSet, range::UnitRange{Integer}, N::Integer)
+    return [rand_neg(b, range) for _ in 1:N]
 end
 
 struct BPRIterBits <: AbstractBPRIter
@@ -36,16 +25,16 @@ function BPRIterBits(data::AbstractArray{T, 2}) where T
     nprods, nusers = size(gooddata)
     users = 1:nusers
     prods = BitSet(1:nprods)
-    pos_prods = [setdiff(prods, BitSet(find(gooddata[:, user] .> 0))) for user in users]
+    pos_prods = [BitSet(find(gooddata[:, user] .> 0)) for user in users]
     pos_holdouts = [rand(pos_prods[u]) for u in users]
-    neg_holdouts = [rand_neg(pos_prods[u]) for u in users]
+    neg_holdouts = [rand_neg(pos_prods[u], 1:nprods) for u in users]
     return BPRIterBits(nusers, nprods, users, prods, pos_prods, pos_holdouts,
                        neg_holdouts)
 end
 
 function BPRIterBits(B::BPRIterBits)
     pos_holdouts = [rand(B.pos_prods[u]) for u in B.users]
-    neg_holdouts = [rand_neg(B.pos_prods[u]) for u in B.users]
+    neg_holdouts = [rand_neg(B.pos_prods[u], 1:B.nprods) for u in B.users]
     return BPRIterBits(B.nusers, B.nprods, copy(B.users), copy(B.prods),
                        deepcopy(B.pos_prods), pos_holdouts, neg_holdouts)
 end
@@ -59,7 +48,7 @@ end
 
 @inline function nextneg(user::Integer, B::BPRIterBits)
     while true
-        np = @views rand_neg(B.pos_prods[user])
+        np = @views rand_neg(B.pos_prods[user], 1:B.nprods)
         np != B.neg_holdouts[user] && return np
     end
 end
