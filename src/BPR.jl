@@ -48,6 +48,19 @@ end
 
 Base.show(io::Base.IO, B::BPRResult) = print(io, string(B))
 
+function verifydata(data::AbstractArray{T, 2}) where T
+    good_users = find(x -> (x>1), # which users have more than 1 product consumed
+                      sum(x -> x > 0, data, 1)) # number of products per user
+    if size(good_users, 1) < size(data, 2)
+        warn("$(size(data, 2) - size(good_users, 1)) users were removed for insufficient data.")
+        data = data[:, good_users]
+    end
+    if any(sum(data, 2) .== 0)
+        error("some columns sum to 0. Fix your data. bailing.")
+    end
+    return data
+end
+
 # needs nusers, nprods, and next() / iterator protocol
 
 # data properties in convenient format with iterator protocol
@@ -68,7 +81,7 @@ struct BPRIterDense <: AbstractBPRIter
 end
 
 """
-    data is a user x item array, result is an infinite iterator over Ds
+    data is a item x user array, result is an infinite iterator over Ds
 
     where the non-zero entries indicate that the user has
     consumed/purchased/rated that item. Because we compute out-of-sample AUC,
@@ -82,19 +95,11 @@ end
 function BPRIterDense(data::AbstractArray{T, 2}) where T
     # do any users see only one item? filter out b/c can't do hold out with
     # them
-    good_users = find(x -> (x>1),
-                      sum(x -> x > 0, data, 2))
-    if size(good_users, 1) < size(data, 1)
-        warn("$(size(data, 1) - size(good_users, 1)) users were removed for insufficient data.")
-        data = data[good_users, :]
-    end
-    if any(sum(data, 1) .== 0)
-        error("some columns sum to 0. Fix your data. bailing.")
-    end
-    nusers, nprods = size(data)
+    gooddata = verifydata(data)
+    nprods, nusers = size(gooddata)
     users = 1:nusers
     prods = IntSet(1:nprods)
-    pos_prods = [find(data[user, :] .> 0) for user in users]
+    pos_prods = [find(gooddata[:, user] .> 0) for user in users]
     neg_prods = [collect(setdiff(prods, posprod)) for posprod in pos_prods]
     pos_holdouts = zeros(eltype(pos_prods[1]), nusers)
     neg_holdouts = zeros(eltype(neg_prods[1]), nusers)
@@ -160,19 +165,11 @@ struct BPRIterSparse <: AbstractBPRIter
 end
 
 function BPRIterSparse(data::AbstractArray{T, 2}) where T
-    good_users = find(x -> (x>1),
-                      sum(x -> x > 0, data, 2))
-    if size(good_users, 1) < size(data, 1)
-        warn("$(size(data, 1) - size(good_users, 1)) users were removed for insufficient data.")
-        data = data[good_users, :]
-    end
-    if any(sum(data, 1) .== 0)
-        error("some columns sum to 0. Fix your data. bailing.")
-    end
-    nusers, nprods = size(data)
+    gooddata = verifydata(data)
+    nprods, nusers = size(gooddata)
     users = 1:nusers
     prods = Set(1:nprods)
-    pos_prods = [Set(find(data[user, :] .> 0)) for user in users]
+    pos_prods = [Set(find(gooddata[:, user] .> 0)) for user in users]
     S = eltype(pos_prods[1])
     pos_holdouts = zeros(S, nusers)
     neg_holdouts = zeros(S, nusers)
@@ -232,19 +229,11 @@ struct BPRIterBits <: AbstractBPRIter
 end
 
 function BPRIterBits(data::AbstractArray{T, 2}) where T
-    good_users = find(x -> (x>1),
-                      sum(x -> x > 0, data, 2))
-    if size(good_users, 1) < size(data, 1)
-        warn("$(size(data, 1) - size(good_users, 1)) users were removed for insufficient data.")
-        data = data[good_users, :]
-    end
-    if any(sum(data, 1) .== 0)
-        error("some columns sum to 0. Fix your data. bailing.")
-    end
-    nusers, nprods = size(data)
+    gooddata = verifydata(data)
+    nprods, nusers = size(gooddata)
     users = 1:nusers
     prods = BitSet(1:nprods)
-    pos_prods = [setdiff(prods, BitSet(find(data[user, :] .> 0))) for user in users]
+    pos_prods = [setdiff(prods, BitSet(find(gooddata[:, user] .> 0))) for user in users]
     pos_holdouts = [rand(pos_prods[u]) for u in users]
     neg_holdouts = [rand_neg(pos_prods[u]) for u in users]
     return BPRIterBits(nusers, nprods, users, prods, pos_prods, pos_holdouts,
@@ -394,8 +383,8 @@ end
 
 function bpr(data::AbstractArray{<:Real, 2}, k, λw, λhp, λhn, α; 
              tol=1e-5, loop_size=4096, max_iters=0, min_iters=1, min_auc=0.0,
-             W=randn(k, size(data, 1)), H=randn(k, size(data, 2)))
-    nusers, nprods = size(data)
+             W=randn(k, size(data, 2)), H=randn(k, size(data, 1)))
+    nprods, nusers = size(data)
     if nusers < k | nprods < k
         error("Number of rows and columns must both be greater than k, $k")
     end
