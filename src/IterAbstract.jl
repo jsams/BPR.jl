@@ -1,7 +1,7 @@
 # data properties in convenient format with iterator protocol
 abstract type  AbstractBPRIter end
 
-Base.string(bpr::AbstractBPRIter) = "$(bpr.nusers) x $(bpr.nprods) $(typeof(bpr))"
+Base.string(bpr::AbstractBPRIter) = "$(bpr.nprods) products x $(bpr.nusers) users $(typeof(bpr))"
 Base.show(io::Base.IO, bpr::AbstractBPRIter) = print(io, string(bpr))
 
 @inline function draw_upn_tup(bpr::AbstractBPRIter)
