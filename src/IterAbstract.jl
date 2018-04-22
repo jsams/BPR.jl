@@ -14,6 +14,8 @@ end
 # 1) users field on which rand() can draw from quickly. suggestion: Integer UnitRange
 # 2) draw_posneg(user, B) to draw a random (positive, negative) tuple for a given user
 # 3) draw_holdout(user, B) to get the (positive, negative) holdout tuple for a given user
+# 4) create instance from a product x user array
+# 5) create a new instance with new holdouts with an instance of itself
 #
 # with these draw_upn_tup(B) to draw a random (user, positive, negative) tuple
 # will work just based on the abstract type
