@@ -4,10 +4,17 @@ abstract type  AbstractBPRIter end
 Base.string(bpr::AbstractBPRIter) = "$(bpr.nusers) x $(bpr.nprods) $(typeof(bpr))"
 Base.show(io::Base.IO, bpr::AbstractBPRIter) = print(io, string(bpr))
 
+@inline function draw_upn_tup(bpr::AbstractBPRIter)
+    user = rand(bpr.users)
+    pp, np = draw_posneg(user, bpr)
+    return (user, pp, np)
+end
 
-Base.start(bpr::AbstractBPRIter) = nothing
-
-Base.done(bpr::AbstractBPRIter, state) = false
-
-Base.iteratorsize(bpr::AbstractBPRIter) = Base.IsInfinite()
+# interface requires:
+# 1) users field on which rand() can draw from quickly. suggestion: Integer UnitRange
+# 2) draw_posneg(user, B) to draw a random (positive, negative) tuple for a given user
+# 3) draw_holdout(user, B) to get the (positive, negative) holdout tuple for a given user
+#
+# with these draw_upn_tup(B) to draw a random (user, positive, negative) tuple
+# will work just based on the abstract type
 

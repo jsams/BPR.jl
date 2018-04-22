@@ -65,14 +65,11 @@ function BPRIterDense(B::BPRIterDense)
                         pos_prods, neg_prods, pos_holdouts, neg_holdouts)
 end
 
-function Base.next(bpr::BPRIterDense, state)
-    user = rand(bpr.users)
-    # views don't work here, and i'm not sure that they are necessary
-    pos_prod = rand(bpr.pos_prods[user])
-    neg_prod = rand(bpr.neg_prods[user])
-    return (user, pos_prod, neg_prod), nothing
+@inline function draw_posneg(user::Integer, B::BPRIterDense)
+    return (rand(B.pos_prods[user]), rand(B.neg_prods[user]))
 end
 
-Base.iteratoreltype(bpr::BPRIterDense) = typeof((bpr.users[1], bpr.pos_prods[1][1],
-                                             bpr.neg_prods[1][1]))
+@inline function draw_holdout(user::Integer, B::BPRIterDense)
+    return (B.pos_holdouts[user], B.neg_holdouts[user])
+end
 

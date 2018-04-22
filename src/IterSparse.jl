@@ -26,15 +26,14 @@ function BPRIterSparse(data::AbstractArray{T, 2}) where T
                          neg_holdouts)
 end
 
-function Base.next(B::BPRIterSparse, state)
-    user = rand(B.users)
+@inline function draw_posneg(user::Integer, B::BPRIterSparse)
     pos_prod = @views rand(B.pos_prods[user])
     neg_prod = @views rand(setdiff(setdiff(B.prods, B.pos_prods[user]),
                                    Set(B.neg_holdouts[user])))
-    return (user, pos_prod, neg_prod), nothing
+    return (pos_prod, neg_prod)
 end
 
-Base.iteratoreltype(bpr::BPRIterSparse) = typeof((bpr.users[1],
-                                                 zero(eltype(bpr.pos_prods[1])),
-                                                 zero(eltype(bpr.pos_prods[1]))))
+@inline function draw_holdout(user::Integer, B::BPRIterSparse)
+    return (B.pos_holdouts[user], B.neg_holdouts[user])
+end
 

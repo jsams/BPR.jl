@@ -50,26 +50,25 @@ function BPRIterBits(B::BPRIterBits)
                        deepcopy(B.pos_prods), pos_holdouts, neg_holdouts)
 end
 
-@inline function nextpos(B::BPRIterBits, user::Integer)
+@inline function nextpos(user::Integer, B::BPRIterBits)
     while true
         pp = @views rand(B.pos_prods[user])
         pp != B.pos_holdouts[user] && return pp
     end
 end
 
-@inline function nextneg(B::BPRIterBits, user::Integer)
+@inline function nextneg(user::Integer, B::BPRIterBits)
     while true
         np = @views rand_neg(B.pos_prods[user])
         np != B.neg_holdouts[user] && return np
     end
 end
 
-function Base.next(B::BPRIterBits, state)
-    user = rand(B.users)
-    return (user, nextpos(B, user), nextneg(B, user)), nothing
+@inline function draw_posneg(user::Integer, B::BPRIterBits)
+    return (nextpos(user, B), nextneg(user, B))
 end
 
-Base.iteratoreltype(bpr::BPRIterBits) = typeof((bpr.users[1],
-                                                 zero(eltype(bpr.pos_prods[1])),
-                                                 zero(eltype(bpr.pos_prods[1]))))
+@inline function draw_holdout(user::Integer, B:BPRIterBits)
+    return (B.pos_holdouts[user], B.neg_holdouts[user])
+end
 

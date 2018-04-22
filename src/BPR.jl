@@ -61,21 +61,7 @@ function verifydata(data::AbstractArray{T, 2}) where T
     return data
 end
 
-# needs nusers, nprods, and next() / iterator protocol
-
-# data properties in convenient format with iterator protocol
-abstract type  AbstractBPRIter end
-
-Base.string(bpr::AbstractBPRIter) = "$(bpr.nusers) x $(bpr.nprods) $(typeof(bpr))"
-Base.show(io::Base.IO, bpr::AbstractBPRIter) = print(io, string(bpr))
-
-
-Base.start(bpr::AbstractBPRIter) = nothing
-
-Base.done(bpr::AbstractBPRIter, state) = false
-
-Base.iteratorsize(bpr::AbstractBPRIter) = Base.IsInfinite()
-
+include("IterAbstract.jl")
 include("IterDense.jl")
 include("IterSparse.jl")
 include("IterBits.jl")
@@ -127,9 +113,9 @@ function bpr(biter::AbstractBPRIter, k, λw, λhp, λhn, α;
     while true
         bpr_new = 0.0
         cur_auc = 0.0
-        @inbounds for _ in 1:loop_size # simd be might be bad with random next()
-        #@inbounds @simd for _ in 1:loop_size # simd be might be bad with random next()
-            (user, pos_prod, neg_prod), _ = next(biter, nothing) # expensive: 222
+        @inbounds for _ in 1:loop_size # simd be might be bad with overlapping assignment 
+        #@inbounds @simd for _ in 1:loop_size
+            user, post_prod, neg_prod = draw_upn_tup(biter)
             wuf = @view(W[:, user])
             hif = @view(H[:, pos_prod])
             hjf = @view(H[:, neg_prod])
@@ -222,7 +208,7 @@ function auc_insamp(biter::AbstractBPRIter, W::AbstractArray{<:Real, 2},
                     H::AbstractArray{<:Real, 2}; iters=4096)
     sm = 0
     @inbounds @simd for _ in 1:iters
-        (user, pos_prod, neg_prod), _ = next(biter, nothing) # expensive: 222
+        user, pos_prod, neg_prod = draw_upn_tup(biter)
         wuf = @view(W[:, user])
         hif = @view(H[:, pos_prod])
         hjf = @view(H[:, neg_prod])
@@ -238,13 +224,13 @@ auc_insamp(biter::AbstractBPRIter, B::BPRResult; iters=4096) = auc_insamp(biter,
 function auc_outsamp(biter::AbstractBPRIter, W, H)
     sm = 0
     @inbounds @simd for user in 1:biter.nusers
-        rand_pos = rand(biter.pos_prods[user])
-        rand_neg = rand(biter.neg_prods[user])
+        pos_hold, neg_hold = draw_holdout(user, biter)
+        pos_rand, neg_rand = draw_posneg(user, biter)
         wuf = @view(W[:, user])
-        hif_hold = @view(H[:, biter.pos_holdouts[user]])
-        hjf_hold = @view(H[:, biter.neg_holdouts[user]])
-        hif_rand = @view(H[:, rand(biter.pos_prods[user])])
-        hjf_rand = @view(H[:, rand(biter.neg_prods[user])])
+        hif_hold = @view(H[:, pos_hold])
+        hjf_hold = @view(H[:, neg_hold])
+        hif_rand = @view(H[:, pos_rand])
+        hjf_rand = @view(H[:, neg_rand])
         sm += ((wuf' * hif_hold - wuf' * hjf_rand) > 0) + ((wuf' * hif_rand - wuf' * hjf_hold) > 0)
     end
     return sm / (2 * biter.nusers)
@@ -255,9 +241,10 @@ auc_outsamp(biter::AbstractBPRIter, B::BPRResult) = auc_outsamp(biter, B.W, B.H)
 function auc_outsamp2(biter::AbstractBPRIter, W, H)
     sm = 0
     @inbounds @simd for user in 1:biter.nusers
+        ph, nh = draw_holdout(user, biter)
         wuf = @view(W[:, user])
-        hif_hold = @view(H[:, biter.pos_holdouts[user]])
-        hjf_hold = @view(H[:, biter.neg_holdouts[user]])
+        hif_hold = @view(H[:, ph])
+        hjf_hold = @view(H[:, nh])
         sm += ((wuf' * hif_hold - wuf' * hjf_hold) > 0)
     end
     return sm / biter.nusers
