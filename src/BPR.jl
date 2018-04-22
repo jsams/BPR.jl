@@ -455,7 +455,7 @@ end
 
 auc_outsamp2(biter::AbstractBPRIter, B::BPRResult) = auc_outsamp2(biter, B.W, B.H)
 
-function grid_search(data::AbstractArray{<:Real, 2}; sample_count=1,
+function grid_search(biterorig::AbstractBPRIter; sample_count=1,
                      ks=Integer.(linspace(10, 100, 3)),
                      λws=-linspace(0.001, 0.1, 3),
                      λhps=-linspace(0.001, 0.1, 3),
@@ -465,7 +465,6 @@ function grid_search(data::AbstractArray{<:Real, 2}; sample_count=1,
                      min_auc=0.0)
     iterover = repeat(reshape(collect(Iterators.product(ks, λws, λhps, λhns, αs)),
                               :), inner=[sample_count])
-    biterorig = BPRIter(data)
     results = pmap(params -> begin
             biter = BPRIter(biterorig)
             k, λw, λhp, λhn, α = params
@@ -494,6 +493,8 @@ function grid_search(data::AbstractArray{<:Real, 2}; sample_count=1,
     df = vcat(results...)
     return df
 end
+
+grid_search(data::AbstractArray{<:Real, 2}; kwargs...) = grid_search(BPRIter(data); kwargs...)
 
 end #module
 
