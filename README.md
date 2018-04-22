@@ -43,11 +43,5 @@ Up to you to analyze griddf as to whether you need to refine the grid search or
 select the optimal hyperparamters.
 
 # TODO
- * would be best not to store negative examples per user for memory reasons,
-   but how to efficiently choose among them without storing them? Sets aren't
-   THAT fast.  benchmarks.jl suggests ~1.5s for 2500 iterations versus 0.02s. Not
-   acceptable.
  * uniform sampling is maybe not quite uniform, read paper to uniform over what.
- * fix progress meters (e.g. min_iters, auc)...maybe just kill insample auc anyway
- * add loop size to result (whoops!)
 
