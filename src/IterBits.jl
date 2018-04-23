@@ -1,5 +1,5 @@
 # does NOT support offset bitsets
-
+# https://github.com/JuliaLang/julia/commit/dd6a94ab21dac82b2157730bbf3399f499050fc7
 """
     for 0.6 compatability, replace instances of IntSet with BitSet in 0.7+
     calls to this random() function should then be replace by rand() and this
