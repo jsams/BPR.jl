@@ -85,8 +85,11 @@ BPRIter(B::BPRIterBits) = BPRIterBits(B)
     * W: an initialized W parameter matrix (k x nuser)
     * H: an initialized H parameter matrix (k x nprod)"""
 function bpr(biter::AbstractBPRIter, k, λw, λhp, λhn, α;
-             tol=1e-5, loop_size=4096, max_iters=0, min_iters=1,
+             tol=1e-5, loop_size=4096, max_iters=0, min_iters=0,
              W=randn(k, biter.nusers), H=randn(k, biter.nprods))
+    if (max_iters > 0) & (max_iters < min_iters)
+        error("If you specify max_iters, max_iters must > min_iters. but you have max_iters == $(max_iters) < $(min_iters) == min_iters.")
+    end
     if biter.nusers < k | biter.nprods < k
         error("Number of rows and columns must both be greater than k, $k")
     end
@@ -96,9 +99,10 @@ function bpr(biter::AbstractBPRIter, k, λw, λhp, λhn, α;
     stepsize = 1.0
     bpr_old = 2.0 # make sure first loop doesn't look like convergence
     bpr_new = 0.0
-    progress = ProgressThresh(tol, "BPR-Opt:")
-    if min_iters > 1
+    if min_iters > 0
         iters_progress = Progress(min_iters, "Min Iters:")
+    else
+        tol_progress = ProgressThresh(tol, "BPR-Opt:")
     end
     info("Starting BPR loop.")
     while true
@@ -124,26 +128,29 @@ function bpr(biter::AbstractBPRIter, k, λw, λhp, λhn, α;
         bpr_new /= loop_size
         stepsize = abs(bpr_new - bpr_old)
         bpr_old = bpr_new
-        ProgressMeter.update!(progress, stepsize)
-        if min_iters > 1
+        if iters < min_iters
             ProgressMeter.update!(iters_progress, iters)
+        elseif iters == min_iters # reach min_iters, now judge on tol
+            ProgressMeter.update!(iters_progress, iters)
+            tol_progress = ProgressThresh(tol, "BPR-Opt:")
+            ProgressMeter.update!(tol_progress, stepsize)
+        else
+            ProgressMeter.update!(tol_progress, stepsize)
         end
         if (iters > min_iters) & (stepsize < tol)
             converged = true
             break
         elseif (max_iters > 0) & (iters >= max_iters)
-            ProgressMeter.cancel(progress, "max iters reached")
-            if min_iters > 1
-                ProgressMeter.cancel(iters_progress, "max iters reached")
-            end
+            ProgressMeter.cancel(tol_progress, "max iters reached")
             warn("max iters reached without convergence, breaking.")
             break
         elseif isnan(stepsize)
-            ProgressMeter.cancel(progress, "NaNs found")
-            if min_iters > 1
+            if iters < min_iters
                 ProgressMeter.cancel(iters_progress, "NaNs found")
+            else
+                ProgressMeter.cancel(tol_progress, "NaNs found")
             end
-            warn("stepsize is nan, breaking.")
+            warn("stepsize is NaN, breaking.")
             break
         end
     end
@@ -154,7 +161,7 @@ function bpr(biter::AbstractBPRIter, k, λw, λhp, λhn, α;
 end
 
 function bpr(data::AbstractArray{<:Real, 2}, k, λw, λhp, λhn, α; 
-             tol=1e-5, loop_size=4096, max_iters=0, min_iters=1,
+             tol=1e-5, loop_size=4096, max_iters=0, min_iters=0,
              W=randn(k, size(data, 2)), H=randn(k, size(data, 1)))
     nprods, nusers = size(data)
     if nusers < k | nprods < k
@@ -200,7 +207,7 @@ function grid_search(biterorig::AbstractBPRIter; sample_count=1,
                      λhps=-linspace(0.001, 0.1, 3),
                      λhns=-linspace(0.001, 0.1, 3),
                      αs=linspace(0.001, 0.1, 3),
-                     tol=1e-5, loop_size=4096, max_iters=0, min_iters=1)
+                     tol=1e-5, loop_size=4096, max_iters=0, min_iters=0)
     iterover = repeat(reshape(collect(Iterators.product(ks, λws, λhps, λhns, αs)),
                               :), inner=[sample_count])
     results = pmap(params -> begin
