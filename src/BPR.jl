@@ -105,7 +105,7 @@ function bpr(biter::AbstractBPRIter, k, λw, λhp, λhn, α;
         bpr_new = 0.0
         @inbounds for _ in 1:loop_size # simd be might be bad with overlapping assignment 
         #@inbounds @simd for _ in 1:loop_size
-            user, post_prod, neg_prod = draw_upn_tup(biter)
+            user, pos_prod, neg_prod = draw_upn_tup(biter)
             wuf = @view(W[:, user])
             hif = @view(H[:, pos_prod])
             hjf = @view(H[:, neg_prod])
